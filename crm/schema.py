@@ -5,14 +5,14 @@ from django.db import transaction
 from .models import Customer, Product, Order
 from datetime import datetime
 
-
-
+# ---------------- Input Types ----------------
 class CustomerInput(graphene.InputObjectType):
     name = graphene.String(required=True)
     email = graphene.String(required=True)
     phone = graphene.String()
 
 
+# ---------------- Object Types ----------------
 class CustomerType(DjangoObjectType):
     class Meta:
         model = Customer
@@ -31,7 +31,7 @@ class OrderType(DjangoObjectType):
         fields = ("id", "customer", "products", "total_amount", "order_date")
 
 
-# ---------- Mutations ----------
+# ---------------- Mutations ----------------
 class CreateCustomer(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
@@ -54,19 +54,25 @@ class CreateCustomer(graphene.Mutation):
 
 class BulkCreateCustomers(graphene.Mutation):
     class Arguments:
-        input = graphene.List(CustomerInput, required=True)  # <-- note CustomerInput, not CustomerInput()
-    
-    customers = graphene.List(lambda: CustomerType)  # type returned
+        input = graphene.List(CustomerInput, required=True)
+
+    customers = graphene.List(CustomerType)
     errors = graphene.List(graphene.String)
 
+    @transaction.atomic
     def mutate(self, info, input):
         created_customers = []
         error_list = []
+
         for cust_data in input:
             try:
-                # validation
+                # Validate email uniqueness
                 if Customer.objects.filter(email=cust_data.email).exists():
                     raise Exception(f"Email {cust_data.email} already exists")
+
+                # Validate phone format
+                if cust_data.phone and not re.match(r"^\+?\d{7,15}$", cust_data.phone) and not re.match(r"^\d{3}-\d{3}-\d{4}$", cust_data.phone):
+                    raise Exception(f"Invalid phone format for {cust_data.name}")
 
                 customer = Customer.objects.create(
                     name=cust_data.name,
@@ -74,6 +80,7 @@ class BulkCreateCustomers(graphene.Mutation):
                     phone=cust_data.phone
                 )
                 created_customers.append(customer)
+
             except Exception as e:
                 error_list.append(str(e))
 
@@ -121,12 +128,15 @@ class CreateOrder(graphene.Mutation):
 
         order = Order.objects.create(customer=customer, order_date=order_date or datetime.now())
         order.products.set(products)
-        order.calculate_total()
+
+        # Calculate total amount
+        order.total_amount = sum([p.price for p in products])
+        order.save()
 
         return CreateOrder(order=order)
 
 
-# ---------- Query & Mutation ----------
+# ---------------- Query & Mutation ----------------
 class CRMQuery(graphene.ObjectType):
     hello = graphene.String(default_value="Hello, GraphQL!")
     customers = graphene.List(CustomerType)
