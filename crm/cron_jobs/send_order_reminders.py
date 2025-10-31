@@ -1,52 +1,50 @@
 #!/usr/bin/env python3
-import requests
-from datetime import datetime, timedelta
+import datetime
+import logging
+from gql import gql, Client
+from gql.transport.requests import RequestsHTTPTransport
 
-GRAPHQL_URL = "http://localhost:8000/graphql"
-LOG_FILE = "/tmp/order_reminders_log.txt"
-
-# Calculate date range for the last 7 days
-today = datetime.now()
-seven_days_ago = today - timedelta(days=7)
-
-# GraphQL query to fetch recent pending orders
-query = """
-{
-  allOrders {
-    id
-    customer {
-      email
-    }
-    orderDate
-    status
-  }
-}
-"""
+# Configure logging
+log_file = "/tmp/order_reminders_log.txt"
+logging.basicConfig(filename=log_file, level=logging.INFO, format="%(asctime)s - %(message)s")
 
 try:
-    response = requests.post(GRAPHQL_URL, json={'query': query})
-    response.raise_for_status()
-    data = response.json()
+    # Set up GraphQL client
+    transport = RequestsHTTPTransport(
+        url="http://localhost:8000/graphql",
+        verify=False,
+        retries=3,
+    )
+    client = Client(transport=transport, fetch_schema_from_transport=False)
 
-    if "data" not in data or "allOrders" not in data["data"]:
-        raise ValueError("Invalid GraphQL response")
+    # Define GraphQL query
+    query = gql("""
+        query GetRecentOrders {
+            allOrders {
+                id
+                orderDate
+                customer {
+                    email
+                }
+            }
+        }
+    """)
 
-    orders = data["data"]["allOrders"]
-    recent_orders = [
-        o for o in orders
-        if o.get("status") == "PENDING"
-        and datetime.fromisoformat(o["orderDate"]) >= seven_days_ago
-    ]
+    # Execute query
+    response = client.execute(query)
 
-    # Write reminders to log file
-    with open(LOG_FILE, "a") as f:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for order in recent_orders:
-            f.write(f"{timestamp} - Reminder: Order {order['id']} for {order['customer']['email']}\n")
+    # Filter orders within the last 7 days
+    now = datetime.datetime.now()
+    seven_days_ago = now - datetime.timedelta(days=7)
+
+    for order in response.get("allOrders", []):
+        order_date = datetime.datetime.fromisoformat(order["orderDate"])
+        if order_date >= seven_days_ago:
+            customer_email = order["customer"]["email"]
+            logging.info(f"Reminder: Order {order['id']} for {customer_email}")
 
     print("Order reminders processed!")
 
 except Exception as e:
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{datetime.now()} - Error: {e}\n")
     print(f"Error occurred: {e}")
+    logging.error(f"Error: {e}")
