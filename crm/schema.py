@@ -170,4 +170,4 @@ class Query(graphene.ObjectType):
     def resolve_hello(self, info):
         return "Hello, GraphQL!"
  
-    
+   
