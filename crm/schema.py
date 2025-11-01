@@ -6,6 +6,7 @@ from datetime import datetime
 from .models import Customer, Product, Order
 from graphene_django.filter import DjangoFilterConnectionField
 from .filters import CustomerFilter, ProductFilter, OrderFilter
+from crm.models import Product
 
 # ---------------- Input Types ----------------
 class CustomerInput(graphene.InputObjectType):
