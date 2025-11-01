@@ -2,9 +2,8 @@ import re
 import graphene
 from graphene_django import DjangoObjectType
 from django.db import transaction
-from .models import Customer, Product, Order
 from datetime import datetime
-from graphene_django.types import DjangoObjectType
+from .models import Customer, Product, Order
 from graphene_django.filter import DjangoFilterConnectionField
 from .filters import CustomerFilter, ProductFilter, OrderFilter
 
@@ -135,21 +134,39 @@ class CreateOrder(graphene.Mutation):
         return CreateOrder(order=order)
 
 
+# ---------------- New Mutation: Update Low Stock ----------------
+class UpdateLowStockProducts(graphene.Mutation):
+    """Restock products with stock < 10 and return updated list."""
+    success = graphene.Boolean()
+    message = graphene.String()
+    updated_products = graphene.List(ProductType)
+
+    def mutate(self, info):
+        low_stock_products = Product.objects.filter(stock__lt=10)
+        updated = []
+
+        for product in low_stock_products:
+            product.stock += 10
+            product.save()
+            updated.append(product)
+
+        message = f"{len(updated)} products restocked successfully."
+        return UpdateLowStockProducts(
+            success=True,
+            message=message,
+            updated_products=updated
+        )
+
+
 # ---------------- Query & Mutation ----------------
 class Query(graphene.ObjectType):
     hello = graphene.String(default_value="Hello, GraphQL!")
-    all_customers = graphene.List(CustomerType)
-    all_products = graphene.List(ProductType)
-    all_orders = graphene.List(OrderType)
+    all_customers = DjangoFilterConnectionField(CustomerType, filterset_class=CustomerFilter)
+    all_products = DjangoFilterConnectionField(ProductType, filterset_class=ProductFilter)
+    all_orders = DjangoFilterConnectionField(OrderType, filterset_class=OrderFilter)
 
-    def resolve_all_customers(self, info):
-        return Customer.objects.all()
-
-    def resolve_all_products(self, info):
-        return Product.objects.all()
-
-    def resolve_all_orders(self, info):
-        return Order.objects.all()
+    def resolve_hello(self, info):
+        return "Hello, GraphQL!"
 
 
 class Mutation(graphene.ObjectType):
@@ -157,17 +174,7 @@ class Mutation(graphene.ObjectType):
     bulk_create_customers = BulkCreateCustomers.Field()
     create_product = CreateProduct.Field()
     create_order = CreateOrder.Field()
+    update_low_stock_products = UpdateLowStockProducts.Field()
 
 
-class Query(graphene.ObjectType):
-    hello = graphene.String(default_value="Hello, GraphQL!")
-
-    # Filtered queries
-    all_customers = DjangoFilterConnectionField(CustomerType, filterset_class=CustomerFilter)
-    all_products = DjangoFilterConnectionField(ProductType, filterset_class=ProductFilter)
-    all_orders = DjangoFilterConnectionField(OrderType, filterset_class=OrderFilter)
-
-    def resolve_hello(self, info):
-        return "Hello, GraphQL!"
- 
-   
+schema = graphene.Schema(query=Query, mutation=Mutation)

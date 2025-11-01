@@ -26,3 +26,49 @@ def log_crm_heartbeat():
         log_file.write(message + "\n")
 
     print(message)
+
+
+def update_low_stock():
+    """Runs the GraphQL mutation to restock low-stock products."""
+    now = datetime.datetime.now().strftime("%d/%m/%Y-%H:%M:%S")
+    log_message = f"{now} - Starting low stock update\n"
+
+    try:
+        transport = RequestsHTTPTransport(
+            url="http://localhost:8000/graphql",
+            verify=False,
+            retries=3,
+        )
+        client = Client(transport=transport, fetch_schema_from_transport=False)
+        
+        mutation = gql("""
+        mutation {
+            updateLowStockProducts {
+                success
+                message
+                updatedProducts {
+                    id
+                    name
+                    stock
+                }
+            }
+        }
+        """)
+        
+        result = client.execute(mutation)
+        data = result.get("updateLowStockProducts", {})
+        log_message += f"{data.get('message', 'No message')}\n"
+
+        updated = data.get("updatedProducts", [])
+        for p in updated:
+            log_message += f"Product: {p['name']}, New stock: {p['stock']}\n"
+
+    except Exception as e:
+        log_message += f"Error occurred: {e}\n"
+
+    # Write to log file
+    with open("/tmp/low_stock_updates_log.txt", "a") as log:
+        log.write(log_message + "\n")
+
+    print(log_message)
+
