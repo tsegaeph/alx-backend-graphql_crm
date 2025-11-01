@@ -1,41 +1,38 @@
-from __future__ import absolute_import, unicode_literals
-from celery import shared_task
+import requests
 from datetime import datetime
-from gql import gql, Client
-from gql.transport.requests import RequestsHTTPTransport
+from celery import shared_task
+
+GRAPHQL_ENDPOINT = "http://localhost:8000/graphql"
 
 @shared_task
 def generate_crm_report():
-    try:
-        transport = RequestsHTTPTransport(
-            url='http://localhost:8000/graphql',
-            verify=False,
-            retries=3,
-        )
-
-        client = Client(transport=transport, fetch_schema_from_transport=True)
-
-        query = gql("""
-        {
-            allCustomers { totalCount }
-            allOrders {
-                edges { node { totalAmount } }
-            }
+    query = """
+    query {
+        allCustomers {
+            id
         }
-        """)
+        allOrders {
+            totalAmount
+        }
+    }
+    """
 
-        result = client.execute(query)
-        total_customers = result.get("allCustomers", {}).get("totalCount", 0)
-        orders = result.get("allOrders", {}).get("edges", [])
+    try:
+        response = requests.post(GRAPHQL_ENDPOINT, json={'query': query})
+        data = response.json().get('data', {})
+
+        total_customers = len(data.get('allCustomers', []))
+        orders = data.get('allOrders', [])
         total_orders = len(orders)
-        total_revenue = sum(o["node"]["totalAmount"] for o in orders if o["node"]["totalAmount"])
+        total_revenue = sum(order.get('totalAmount', 0) for order in orders)
+
+        log_message = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Report: {total_customers} customers, {total_orders} orders, {total_revenue} revenue\n"
 
         with open("/tmp/crm_report_log.txt", "a") as log_file:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            log_file.write(f"{timestamp} - Report: {total_customers} customers, {total_orders} orders, {total_revenue} revenue\n")
-
-        print("CRM weekly report generated successfully!")
+            log_file.write(log_message)
 
     except Exception as e:
         with open("/tmp/crm_report_log.txt", "a") as log_file:
-            log_file.write(f"Error occurred: {str(e)}\n")
+            log_file.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Error: {e}\n")
+
+    print("CRM report generated!")

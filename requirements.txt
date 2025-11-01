@@ -4,3 +4,5 @@ requests
 celery
 django-celery-beat
 redis
+graphene-django
+django-filter
